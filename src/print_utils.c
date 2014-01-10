@@ -1,69 +1,13 @@
+#include <errno.h>
+#include <stdio.h>
+#include <netdb.h>
+#include <stdlib.h>
+
 #include "print_utils.h"
 
 
-int getipaddr(char * name, struct sockaddr * sin,int family) {
-    struct addrinfo * res;
-    struct addrinfo * info;
-    struct addrinfo hints = {0};
-    int error;
-    int found = 0;
 
-    hints.ai_socktype = SOCK_DGRAM;
-    hints.ai_family = family;
-
-    error = getaddrinfo(name,NULL,&hints,&res);
-    if (error != 0)
-    {
-        if (error == EAI_SYSTEM)
-        {
-            perror("getaddrinfo");
-        }
-        else
-        {
-            fprintf(stderr, "error in getaddrinfo: %s\n", gai_strerror(error));
-        }
-        return -1;
-    }
-    else {
-        for(info = res;info != NULL && found == 0; info = info->ai_next) {
-            switch(info->ai_addr->sa_family) {
-                case AF_INET:
-                case AF_INET6:
-                    memcpy(sin,info->ai_addr,info->ai_addrlen);
-                    found = 1;
-                    break;
-            }
-        }
-
-        freeaddrinfo(res);
-    }
-    if(found == 1){
-        return 0;
-    }
-    else {
-        return -2;
-    }
-}
-
-int rule_match(const struct ipt_entry *e)
-{
-    struct sockaddr_in *sin;
-    uint32_t saddr;
-    uint32_t srule;
-    uint32_t mrule;
-
-    sin = (struct sockaddr_in *)opts.src;
-    mrule = e->ip.smsk.s_addr;
-    srule = e->ip.src.s_addr;
-    saddr = sin->sin_addr.s_addr;
-
-    saddr =  saddr&mrule;
-
-
-    return saddr==srule;
-}
-
-static void print_iface(char letter, const char *iface, const unsigned char *mask, int invert)
+void print_iface(char letter, const char *iface, const unsigned char *mask, int invert)
 {
     unsigned int i;
 
@@ -122,7 +66,7 @@ void print_ip(char letter,const struct in_addr *ip, const struct in_addr *mask)
 
 /* We want this to be readable, so only print out neccessary fields.
  * Because that's the kind of world I want to live in.  */
-void print_rule4(const struct ipt_entry *e,
+void print_ip4rule(const struct ipt_entry *e,
                 struct xtc_handle *h, const char *chain)
 {
     const struct xt_entry_target *t;
@@ -150,46 +94,43 @@ void print_rule4(const struct ipt_entry *e,
 
 }
 
-void print_chain(struct xtc_handle *h, const char *chain)
+void print_chain(struct xtc_handle *h, const char *chain, int (*rule_checker)(void*))
 {
     const struct ipt_entry *e;
     int first_match = 1;
 
     e = iptc_first_rule(chain, h);
     while(e) {
-        if(rule_match(e)) {
+        if(rule_checker((void*)e)) 
+	{
 	    if(first_match) {
 	        first_match = 0;
 		
      		printf("CHAIN %s\n",chain);
 	    }
-            print_rule4(e, h, chain);
+            print_ip4rule(e, h, chain);
         }
         e = iptc_next_rule(e, h);
     }
 }
 
-int print_table(const char *tablename)
+int print_table(const char *tablename, int (*rule_checker)(void*))
 {
     struct xtc_handle *h;
     const char* chain = NULL;
-
+    
     h = iptc_init(tablename);
 
-    if (h == NULL) {
-            xtables_load_ko(xtables_modprobe_program, false);
-            h = iptc_init(tablename);
+    if (!h) {
+	fprintf(stderr,"Cannot initialize: %s\n",iptc_strerror(errno));
+        exit(OTHER_PROBLEM);
     }
-    if (!h)
-            xtables_error(OTHER_PROBLEM, "Cannot initialize: %s\n",
-                       iptc_strerror(errno));
-
     printf("TABLE %s:\n",tablename);
 
     for (chain = iptc_first_chain(h);
         chain;
         chain = iptc_next_chain(h)) {
-        print_chain(h,chain);
+        print_chain(h,chain,rule_checker);
     }
 
     iptc_free(h);

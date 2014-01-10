@@ -1,3 +1,3 @@
-bin_PROGRAMS	= iptablesfind
+sbin_PROGRAMS	= iptables-find
 
-iptablesfind_SOURCES	= main.c print_utils.c print_utils.h
+iptables_find_SOURCES	= main.c print_utils.c print_utils.h
